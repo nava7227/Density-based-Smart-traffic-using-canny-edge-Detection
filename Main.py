@@ -1,140 +1,90 @@
-from tkinter import messagebox
-from tkinter import *
-from tkinter import simpledialog
-import tkinter
-from tkinter import filedialog
-import numpy as np
-from tkinter.filedialog import askopenfilename
-import numpy as np 
-from CannyEdgeDetector import *
-import skimage
-import matplotlib.image as mpimg
-import os
-import scipy.misc as sm
-import cv2
-import matplotlib.pyplot as plt 
+"""Launch the desktop demo with python Main.py."""
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from traffic import ROOT, DEFAULT_REFERENCE, analyze
 
+class TrafficApp:
+    def __init__(self, root):
+        self.root = root
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.sample = None
+        self.reference = DEFAULT_REFERENCE
+        self.result = None
+        self.future = None
+        root.title('Traffic Image Analysis')
+        root.geometry('760x470'); root.minsize(600,430)
+        frame=ttk.Frame(root,padding=24); frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text='Traffic Image Analysis',font=('Segoe UI',20,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='Academic prototype: compare image edges and suggest a green-signal duration.',wraplength=650).pack(anchor='w',pady=(4,18))
+        self.sample_label=ttk.Label(frame,text='No traffic image selected',wraplength=650)
+        self.sample_label.pack(anchor='w')
+        self.select_button=ttk.Button(frame,text='Choose traffic image',command=self.select_sample)
+        self.select_button.pack(anchor='w',pady=(6,12))
+        self.reference_label=ttk.Label(frame,text=f'Reference: {self.reference.name}',wraplength=650)
+        self.reference_label.pack(anchor='w')
+        self.reference_button=ttk.Button(frame,text='Choose reference image',command=self.select_reference)
+        self.reference_button.pack(anchor='w',pady=(6,12))
+        self.run_button=ttk.Button(frame,text='Analyze image',command=self.start,state='disabled')
+        self.run_button.pack(anchor='w')
+        self.status=ttk.Label(frame,text='Choose an image to begin.',wraplength=650)
+        self.status.pack(anchor='w',pady=14)
+        self.preview_button=ttk.Button(frame,text='Show edge comparison',command=self.preview,state='disabled')
+        self.preview_button.pack(anchor='w')
+        ttk.Label(frame,text='Edge density is not a vehicle count. This demo does not control real traffic signals.',wraplength=650).pack(anchor='w',pady=(18,0))
+        root.protocol('WM_DELETE_WINDOW',self.close)
 
-main = tkinter.Tk()
-main.title("Density Based Smart Traffic Control System")
-main.geometry("1300x1200")
+    def choose(self):
+        return filedialog.askopenfilename(initialdir=ROOT/'images',filetypes=[('Images','*.png *.jpg *.jpeg *.bmp'),('All files','*.*')])
 
-global filename
-global refrence_pixels
-global sample_pixels
+    def invalidate(self):
+        self.result=None
+        self.preview_button.configure(state='disabled')
+        self.status.configure(text='Ready to analyze.' if self.sample else 'Choose an image to begin.')
+        self.run_button.configure(state='normal' if self.sample else 'disabled')
 
-def rgb2gray(rgb):
+    def select_sample(self):
+        value=self.choose()
+        if value:
+            self.sample=Path(value); self.sample_label.configure(text=f'Traffic image: {self.sample.name}'); self.invalidate()
 
-    r, g, b = rgb[:,:,0], rgb[:,:,1], rgb[:,:,2]
-    gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
+    def select_reference(self):
+        value=self.choose()
+        if value:
+            self.reference=Path(value); self.reference_label.configure(text=f'Reference: {self.reference.name}'); self.invalidate()
 
-    return gray
+    def start(self):
+        if not self.sample or (self.future and not self.future.done()): return
+        self.result=None
+        for widget in (self.run_button,self.select_button,self.reference_button,self.preview_button): widget.configure(state='disabled')
+        self.status.configure(text='Analyzing image...')
+        self.future=self.executor.submit(analyze,self.sample,self.reference)
+        self.root.after(80,self.poll)
 
-def uploadTrafficImage():
-    global filename
-    filename = filedialog.askopenfilename(initialdir="images")
-    pathlabel.config(text=filename)
+    def poll(self):
+        if not self.future.done():
+            self.root.after(80,self.poll); return
+        for widget in (self.run_button,self.select_button,self.reference_button): widget.configure(state='normal')
+        try:
+            self.result=self.future.result(); r=self.result
+            self.status.configure(text=f'Sample edge pixels: {r.sample_pixels:,} | Reference edge pixels: {r.reference_pixels:,}\nEdge-density ratio: {r.ratio:.1f}% | Suggested green time: {r.seconds} seconds')
+            self.preview_button.configure(state='normal')
+        except Exception as error:
+            self.status.configure(text='Analysis failed. Check the selected images and try again.')
+            messagebox.showerror('Unable to analyze image',str(error))
 
-def visualize(imgs, format=None, gray=False):
-    j = 0
-    plt.figure(figsize=(20, 40))
-    for i, img in enumerate(imgs):
-        if img.shape[0] == 3:
-            img = img.transpose(1,2,0)
-        plt_idx = i+1
-        plt.subplot(2, 2, plt_idx)
-        if j == 0:
-            plt.title('Sample Image')
-            plt.imshow(img, format)
-            j = j + 1
-        elif j > 0:
-            plt.title('Reference Image')
-            plt.imshow(img, format)
-            
-    plt.show()
-    
-def applyCanny():
-    imgs = []
-    img = mpimg.imread(filename)
-    img = rgb2gray(img)
-    imgs.append(img)
-    edge = CannyEdgeDetector(imgs, sigma=1.4, kernel_size=5, lowthreshold=0.09, highthreshold=0.20, weak_pixel=100)
-    imgs = edge.detect()
-    for i, img in enumerate(imgs):
-        if img.shape[0] == 3:
-            img = img.transpose(1,2,0)
-    cv2.imwrite("gray/test.png",img)
-    temp = []
-    img1 = mpimg.imread('gray/test.png')
-    img2 = mpimg.imread('gray/refrence.png')
-    temp.append(img1)
-    temp.append(img2)
-    visualize(temp)
+    def preview(self):
+        if self.result is None: return
+        import matplotlib.pyplot as plt
+        fig,axes=plt.subplots(1,2,figsize=(9,4))
+        for ax,image,title in zip(axes,[self.result.sample_edges,self.result.reference_edges],['Traffic image edges','Reference image edges']):
+            ax.imshow(image,cmap='gray',vmin=0,vmax=255); ax.set_title(title); ax.axis('off')
+        fig.tight_layout(); plt.show()
 
-def pixelcount():
-    global refrence_pixels
-    global sample_pixels
-    img = cv2.imread('gray/test.png', cv2.IMREAD_GRAYSCALE)
-    sample_pixels = np.sum(img == 255)
-    
-    img = cv2.imread('gray/refrence.png', cv2.IMREAD_GRAYSCALE)
-    refrence_pixels = np.sum(img == 255)
-    messagebox.showinfo("Pixel Counts", "Total Refrence White Pixels Count : "+str(sample_pixels)+"\nTotal Sample White Pixels Count : "+str(refrence_pixels))
+    def close(self):
+        self.executor.shutdown(wait=False,cancel_futures=True)
+        self.root.destroy()
 
-
-def timeAllocation():
-    avg = (sample_pixels/refrence_pixels) *100
-    if avg >= 90:
-        messagebox.showinfo("Green Signal Allocation Time","Traffic is very high allocation green signal time : 60 secs")
-    if avg > 85 and avg < 90:
-        messagebox.showinfo("Green Signal Allocation Time","Traffic is high allocation green signal time : 50 secs")
-    if avg > 75 and avg <= 85:
-        messagebox.showinfo("Green Signal Allocation Time","Traffic is moderate green signal time : 40 secs")
-    if avg > 50 and avg <= 75:
-        messagebox.showinfo("Green Signal Allocation Time","Traffic is low allocation green signal time : 30 secs")
-    if avg <= 50:
-        messagebox.showinfo("Green Signal Allocation Time","Traffic is very low allocation green signal time : 20 secs")        
-        
-
-def exit():
-    main.destroy()
-    
-
-    
-font = ('times', 16, 'bold')
-title = Label(main, text='                           Density Based Smart Traffic Control System Using Canny Edge Detection Algorithm for Congregating Traffic Information',anchor=W, justify=CENTER)
-title.config(bg='yellow4', fg='white')  
-title.config(font=font)           
-title.config(height=3, width=120)       
-title.place(x=0,y=5)
-
-
-font1 = ('times', 14, 'bold')
-upload = Button(main, text="Upload Traffic Image", command=uploadTrafficImage)
-upload.place(x=50,y=100)
-upload.config(font=font1)  
-
-pathlabel = Label(main)
-pathlabel.config(bg='yellow4', fg='white')  
-pathlabel.config(font=font1)           
-pathlabel.place(x=50,y=150)
-
-process = Button(main, text="Image Preprocessing Using Canny Edge Detection", command=applyCanny)
-process.place(x=50,y=200)
-process.config(font=font1)
-
-count = Button(main, text="White Pixel Count", command=pixelcount)
-count.place(x=50,y=250)
-count.config(font=font1)
-
-count = Button(main, text="Calculate Green Signal Time Allocation", command=timeAllocation)
-count.place(x=50,y=300)
-count.config(font=font1)
-
-exitButton = Button(main, text="Exit", command=exit)
-exitButton.place(x=50,y=350)
-exitButton.config(font=font1)
-
-
-main.config(bg='magenta3')
-main.mainloop()
+if __name__=='__main__':
+    root=tk.Tk(); TrafficApp(root); root.mainloop()

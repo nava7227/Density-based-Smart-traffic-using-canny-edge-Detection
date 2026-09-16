@@ -1,85 +1,92 @@
 # Density-Based Smart Traffic Control System
 
-An academic Python desktop prototype that uses Canny edge detection to compare traffic-image edge pixels with a reference image and suggest a green-signal duration.
+An academic Python desktop demo that compares traffic-image edge density with a reference image and suggests a green-signal duration. It uses a custom Canny pipeline with Gaussian smoothing, Sobel gradients, non-maximum suppression, thresholding, and connected-edge hysteresis.
 
-**Author:** Nava Chaitanya Karella  
-**Academic project:** January 2024 - October 2025  
-**Stack:** Python, Tkinter, OpenCV, NumPy, SciPy, scikit-image, Matplotlib
+**Author:** Nava Chaitanya Karella · **Academic project:** Jan 2024 - Oct 2025
 
-## What it does
+The original project was completed in October 2025. This portfolio maintenance update adds reproducible setup, supplied images, error handling, and automated tests. It does not imply these improvements were present in the original submission.
 
-1. Lets the user choose a traffic image.
-2. Converts it to grayscale and applies the custom Canny edge detector.
-3. Compares the resulting white-pixel count with a reference edge image.
-4. Displays a suggested green-signal duration of 20-60 seconds.
+![Supplied samples and computed edges](sample-results.png)
 
-This is an image-based demonstration. It does not operate physical traffic lights or measure an exact vehicle count.
+## Quick start
 
-## Files
+Tested with Python 3.12 on Windows. Install Python with Tkinter support (included in the standard Windows Python installer).
 
-| File | Purpose |
-| --- | --- |
-| `Main.py` | Tkinter interface, image processing workflow, and timing logic |
-| `CannyEdgeDetector.py` | Custom edge-detector implementation |
-| `test_script.py`, `test1_module.py` | Supporting test scripts; inspect their inputs before running |
-| `run.bat` | Windows launch helper |
-
-## Local setup
-
-The original sample/reference images are not included in the current repository. Prepare these inputs before launching the workflow.
-
-1. Install Python with Tkinter support.
-2. Create and activate a virtual environment.
-3. Install the libraries used by the application:
-
-```bash
-python -m pip install numpy scipy scikit-image matplotlib opencv-python
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python Main.py
 ```
 
-4. Create a `gray` directory in the repository root.
-5. Place the reference edge image at **`gray/refrence.png`** (the spelling matches the current code). Use a representative reference image with nonzero white pixels and comparable image dimensions/preprocessing.
-6. Run from the repository root:
+On macOS/Linux, use `.venv/bin/python` instead. Linux may require your distribution's `python3-tk` package. Those platforms have not been tested.
 
-```bash
-python Main.py
+Windows users can also double-click `run.bat` after installing the dependencies. Paths are relative to the application files, so launch location does not matter.
+
+## Desktop workflow
+
+1. Select a traffic image (start with `images/A.png`).
+2. Keep the supplied `images/refrence.png` reference or choose another original image.
+3. Select **Analyze image**. The interface reports sample/reference edge counts, the edge-density ratio, and the suggested duration.
+4. Select **Show edge comparison** to view both computed edge maps.
+
+Both images receive identical processing. Samples are resized to the reference dimensions before comparison. Image analysis runs in a worker thread so the window remains responsive. The app rejects missing/corrupt images and references without detectable edges.
+
+## Run the sample analysis and tests
+
+```powershell
+.venv\Scripts\python test_script.py
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest test_traffic.py -q
 ```
 
-These setup notes reflect code inspection; a clean-environment run and compatible dependency versions still need verification.
+The sample script processes A-D and writes edge images plus `results.csv` into `outputs/`. Use `--output PATH` or `--reference PATH` to change those locations. The supplied legacy `gray/` files are not required: reference edges are recalculated from the original image.
 
-## Using the interface
+## Verified results
 
-Click the controls in order:
+On the supplied images with the default reference:
 
-1. **Upload Traffic Image**
-2. **Image Preprocessing Using Canny Edge Detection**
-3. **White Pixel Count**
-4. **Calculate Green Signal Time Allocation**
+| Sample | Edge pixels | Reference edge pixels | Ratio | Suggested green time |
+| --- | ---: | ---: | ---: | ---: |
+| A | 12,760 | 14,702 | 86.791% | 50 s |
+| B | 15,359 | 14,702 | 104.469% | 60 s |
+| C | 12,997 | 14,702 | 88.403% | 50 s |
+| D | 12,730 | 14,702 | 86.587% | 50 s |
 
-Processing writes `gray/test.png`. The reference image remains at `gray/refrence.png`.
+**24 automated tests passed.** Tests cover timing boundaries, invalid ratios, uniform images, connected weak-edge chains in both directions, repeated detector calls, missing/corrupt files, blank references, all supplied inputs, and importing the interface without opening a window. The processing path and tests were executed; interactive desktop clicks have not been manually verified.
+
+These results are reproducibility checks, not an accuracy benchmark. A ratio above 100% is possible because a sample can have more edge pixels than the reference.
 
 ## Timing rule
 
-The percentage is `(sample white pixels / reference white pixels) * 100`. It is an image-edge ratio, not a validated traffic occupancy percentage.
+`ratio = sample edge pixels / reference edge pixels * 100`
 
-| Edge-pixel ratio | Suggested green time |
-| --- | --- |
-| 90% or higher | 60 seconds |
-| Greater than 85%, below 90% | 50 seconds |
-| Greater than 75%, up to 85% | 40 seconds |
-| Greater than 50%, up to 75% | 30 seconds |
-| 50% or lower | 20 seconds |
+| Ratio | Seconds |
+| --- | ---: |
+| 90% or more | 60 |
+| Above 85%, below 90% | 50 |
+| Above 75%, up to 85% | 40 |
+| Above 50%, up to 75% | 30 |
+| Up to 50% | 20 |
 
-## Limitations and next improvements
+This is an edge-density heuristic, not an exact vehicle count or validated occupancy percentage. Shadows, lane markings, camera position, reference choice, and resizing affect the result. The demo does not connect to traffic lights or establish safe signal timings for real roads.
 
-- Add redistributable sample/reference images and a screenshot of the working interface.
-- Add tested dependency versions and repeatable setup instructions.
-- Validate missing files, cancelled selections, grayscale inputs, and a zero-pixel reference image.
-- Enforce the processing order and correct the swapped sample/reference labels in the pixel-count dialog.
-- Separate timing logic from the interface and test threshold boundaries.
-- Evaluate sensitivity to lighting, shadows, camera angle, and image size using a documented dataset.
+## File guide
 
-No benchmark accuracy or live-deployment performance is claimed.
+- `Main.py`: desktop interface and asynchronous processing.
+- `traffic.py`: image reading, normalization, analysis, and timing rules.
+- `CannyEdgeDetector.py`: custom edge detector, including modern SciPy imports and stable blank-image handling.
+- `test_script.py`: reproducible batch analysis and CSV export.
+- `test_traffic.py`: regression tests.
+- `test1_module.py`: compatibility adapter replacing the original unfinished detector placeholder.
+- `images/`: original supplied traffic and reference images. The original `refrence.png` spelling is retained for compatibility.
+- `requirements.txt`, `requirements-dev.txt`: exact tested direct dependency versions.
+
+## Future work
+
+- Evaluate against annotated vehicle counts and a larger, consistently captured dataset.
+- Compare this edge-based baseline with object detection.
+- Add a region-of-interest selector and quantify sensitivity to illumination and resizing.
 
 ## Contact
 
-[Nava Chaitanya Karella on LinkedIn](https://www.linkedin.com/in/navakarella0027/)
+[GitHub profile](https://github.com/nava7227) · [LinkedIn](https://www.linkedin.com/in/navakarella0027/)

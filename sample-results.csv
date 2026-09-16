@@ -1,0 +1,5 @@
+image,sample_pixels,reference_pixels,edge_ratio_percent,green_seconds
+A.png,12760,14702,86.791,50
+B.png,15359,14702,104.469,60
+C.png,12997,14702,88.403,50
+D.png,12730,14702,86.587,50

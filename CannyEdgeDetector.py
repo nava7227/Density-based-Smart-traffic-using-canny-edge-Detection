@@ -1,12 +1,11 @@
 from scipy import ndimage
-from scipy.ndimage.filters import convolve
+from scipy.ndimage import convolve
 
-from scipy import misc
+
 import numpy as np
 
 class CannyEdgeDetector:
     def __init__(self, imgs, sigma=1, kernel_size=5, weak_pixel=75, strong_pixel=255, lowthreshold=0.05, highthreshold=0.15):
-        print(imgs)
         self.imgs = imgs
         self.imgs_final = []
         self.img_smoothed = None
@@ -33,11 +32,11 @@ class CannyEdgeDetector:
         Kx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], np.float32)
         Ky = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], np.float32)
 
-        Ix = ndimage.filters.convolve(img, Kx)
-        Iy = ndimage.filters.convolve(img, Ky)
+        Ix = ndimage.convolve(img, Kx)
+        Iy = ndimage.convolve(img, Ky)
 
         G = np.hypot(Ix, Iy)
-        G = G / G.max() * 255
+        G = G / G.max() * 255 if G.max() > 0 else np.zeros_like(G)
         theta = np.arctan2(Iy, Ix)
         return (G, theta)
     
@@ -85,6 +84,8 @@ class CannyEdgeDetector:
 
     def threshold(self, img):
 
+        if img.max() <= 0:
+            return np.zeros_like(img, dtype=np.int32)
         highThreshold = img.max() * self.highThreshold;
         lowThreshold = highThreshold * self.lowThreshold;
 
@@ -97,7 +98,7 @@ class CannyEdgeDetector:
         strong_i, strong_j = np.where(img >= highThreshold)
         zeros_i, zeros_j = np.where(img < lowThreshold)
 
-        weak_i, weak_j = np.where((img <= highThreshold) & (img >= lowThreshold))
+        weak_i, weak_j = np.where((img < highThreshold) & (img >= lowThreshold))
 
         res[strong_i, strong_j] = strong
         res[weak_i, weak_j] = weak
@@ -105,28 +106,13 @@ class CannyEdgeDetector:
         return (res)
 
     def hysteresis(self, img):
+        # Follow all connected weak edges, independent of scan direction.
+        connected = ndimage.binary_propagation(
+            img == self.strong_pixel, structure=np.ones((3, 3), dtype=bool), mask=img != 0)
+        return np.where(connected, self.strong_pixel, 0).astype(np.int32)
 
-        M, N = img.shape
-        weak = self.weak_pixel
-        strong = self.strong_pixel
-
-        for i in range(1, M-1):
-            for j in range(1, N-1):
-                if (img[i,j] == weak):
-                    try:
-                        if ((img[i+1, j-1] == strong) or (img[i+1, j] == strong) or (img[i+1, j+1] == strong)
-                            or (img[i, j-1] == strong) or (img[i, j+1] == strong)
-                            or (img[i-1, j-1] == strong) or (img[i-1, j] == strong) or (img[i-1, j+1] == strong)):
-                            img[i, j] = strong
-                        else:
-                            img[i, j] = 0
-                    except IndexError as e:
-                        pass
-
-        return img
-    
     def detect(self):
-        imgs_final = []
+        self.imgs_final = []
         for i, img in enumerate(self.imgs):    
             self.img_smoothed = convolve(img, self.gaussian_kernel(self.kernel_size, self.sigma))
             self.gradientMat, self.thetaMat = self.sobel_filters(self.img_smoothed)
